@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ app_name }} - Real-Time Car Plate Scanner</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚗</text></svg>">
+    <style>
+        /* Debug view styles */
+        .debug-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: 16px;
+        }
+        .debug-toggle input {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        .debug-toggle label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+        .debug-section {
+            margin-top: 16px;
+            background: var(--bg-elevated);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            display: none;
+        }
+        .debug-section.active {
+            display: block;
+        }
+        .debug-section h3 {
+            font-size: 0.9rem;
+            margin-bottom: 12px;
+            color: var(--accent-amber);
+        }
+        .debug-image-container {
+            position: relative;
+            background: #000;
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+        }
+        #debugImage {
+            width: 100%;
+            max-height: 300px;
+            object-fit: contain;
+        }
+        .debug-info {
+            margin-top: 12px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        .debug-info .region {
+            padding: 6px 10px;
+            background: var(--bg-card);
+            border-radius: var(--radius-sm);
+            margin-top: 6px;
+        }
+        
+        /* Stacked results layout - Detection on top, Fines below */
+        .results-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        /* Detection Results panel */
+        .results-panel {
+            max-height: 350px;
+        }
+        
+        /* Fines panel styling */
+        .fines-panel {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--accent-rose);
+            display: flex;
+            flex-direction: column;
+            max-height: 300px;
+        }
+        .fines-panel .panel-header {
+            background: rgba(244, 63, 94, 0.1);
+            border-bottom: 1px solid var(--accent-rose);
+        }
+        .fines-panel .panel-header h2::before {
+            content: '⚠️';
+        }
+        
+        /* Fine card styling */
+        .fine-card {
+            background: var(--bg-elevated);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            border-left: 4px solid var(--accent-rose);
+            margin-bottom: 12px;
+            animation: slideIn 0.3s ease;
+        }
+        .fine-card .fine-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .fine-card .plate {
+            font-family: var(--font-mono);
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .fine-card .amount {
+            font-family: var(--font-mono);
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--accent-rose);
+        }
+        .fine-card .fine-details {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        .fine-card .fine-type {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: var(--radius-xl);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-top: 8px;
+        }
+        .fine-card .fine-type.road_tax {
+            background: rgba(245, 158, 11, 0.2);
+            color: var(--accent-amber);
+        }
+        .fine-card .fine-type.insurance {
+            background: rgba(139, 92, 246, 0.2);
+            color: var(--accent-violet);
+        }
+        .fine-card .fine-type.both {
+            background: rgba(244, 63, 94, 0.2);
+            color: var(--accent-rose);
+        }
+        .fine-card .owner {
+            margin-top: 8px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+        
+        /* Fines summary */
+        .fines-summary {
+            padding: 12px 16px;
+            background: rgba(244, 63, 94, 0.1);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+        }
+        .fines-summary .total-label {
+            color: var(--text-secondary);
+        }
+        .fines-summary .total-amount {
+            color: var(--accent-rose);
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon">🚗</div>
+                <div class="logo-text">
+                    <h1>{{ app_name }}</h1>
+                    <span>Real-Time License Plate Scanner</span>
+                </div>
+            </div>
+            <div id="status" class="status idle">Ready to scan</div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-grid">
+            <!-- Video Section -->
+            <section class="video-section">
+                <div class="video-header">
+                    <h2>Live Camera Feed</h2>
+                    <div class="controls">
+                        <button id="startBtn" class="btn btn-primary">
+                            ▶ Start Scanning
+                        </button>
+                        <button id="stopBtn" class="btn btn-danger" disabled>
+                            ⏹ Stop
+                        </button>
+                        <div class="debug-toggle">
+                            <input type="checkbox" id="debugMode">
+                            <label for="debugMode">🔍 YOLOv8 View</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="video-container">
+                    <video id="webcam" autoplay playsinline muted></video>
+                    <canvas id="canvas"></canvas>
+                    <div class="video-placeholder" id="placeholder">
+                        <div class="icon">📷</div>
+                        <p>Click "Start Scanning" to begin</p>
+                        <p style="font-size: 0.85rem; margin-top: 8px;">
+                            Camera permission required
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- Debug Section -->
+                <div id="debugSection" class="debug-section">
+                    <h3>🔍 YOLOv8 Detection View</h3>
+                    <div class="debug-image-container">
+                        <img id="debugImage" src="" alt="Debug view - YOLOv8 detection">
+                    </div>
+                    <div class="debug-info">
+                        <div>Plates detected: <span id="debugRegions">0</span></div>
+                        <div id="debugRegionList"></div>
+                    </div>
+                </div>
+                
+                <!-- Stats -->
+                <div id="stats">
+                    <div class="stat">
+                        <span class="stat-value">0</span>
+                        <span class="stat-label">Scans</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value">0</span>
+                        <span class="stat-label">Plates</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value">0</span>
+                        <span class="stat-label">Fines</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value">0</span>
+                        <span class="stat-label">Cached</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Results Panels -->
+            <aside class="results-grid">
+                <!-- Detection Results Panel -->
+                <div class="results-panel">
+                    <div class="panel-header">
+                        <h2>Detection Results</h2>
+                    </div>
+                    <div id="results">
+                        <p class="no-results">No plates detected yet...</p>
+                    </div>
+                </div>
+                
+                <!-- Fines Issued Panel -->
+                <div class="results-panel fines-panel">
+                    <div class="panel-header">
+                        <h2>Fines Issued</h2>
+                    </div>
+                    <div id="finesResults">
+                        <p class="no-results">No fines issued yet...</p>
+                    </div>
+                    <div class="fines-summary">
+                        <span class="total-label">Total Fines:</span>
+                        <span class="total-amount" id="totalFines">RM 0.00</span>
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>
+                Void Tax System v1.0 | 
+                Cache cooldown: {{ cache_cooldown }} minutes | 
+                Scan interval: {{ scan_interval }}ms |
+                <a href="/docs" target="_blank">API Docs</a>
+            </p>
+        </footer>
+    </div>
+
+    <!-- Configuration -->
+    <script>
+        window.SCAN_INTERVAL = {{ scan_interval }};
+    </script>
+    
+    <!-- Main Scanner Script -->
+    <script src="/static/js/realtime-scanner.js"></script>
+    
+    <!-- Debug and placeholder handling -->
+    <script>
+        document.getElementById('webcam').addEventListener('playing', function() {
+            document.getElementById('placeholder').style.display = 'none';
+        });
+        
+        document.getElementById('stopBtn').addEventListener('click', function() {
+            document.getElementById('placeholder').style.display = 'block';
+        });
+        
+        // Debug mode toggle
+        document.getElementById('debugMode').addEventListener('change', function() {
+            const debugSection = document.getElementById('debugSection');
+            if (this.checked) {
+                debugSection.classList.add('active');
+                window.DEBUG_MODE = true;
+            } else {
+                debugSection.classList.remove('active');
+                window.DEBUG_MODE = false;
+            }
+        });
+    </script>
+</body>
+</html>
